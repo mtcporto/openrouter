@@ -727,11 +727,13 @@
                     headers: {
                         "Authorization": `Bearer ${OPENROUTER_API_KEY}`,
                         "Content-Type": "application/json",
-                        "HTTP-Referer": window.location.origin
+                        "HTTP-Referer": "https://openrouter.ai/",
+                        "X-Title": "OpenRouter Chat"
                     },
                     body: JSON.stringify({
                         model: currentModel,
-                        messages: conversationHistory[currentModel]
+                        messages: conversationHistory[currentModel],
+                        route: "fallback" // Adiciona opção de fallback para garantir a entrega
                     })
                 });
                 
@@ -785,6 +787,12 @@
                     errorMessage = "Saldo insuficiente para este modelo. Use um modelo gratuito ou recarregue sua conta.";
                 } else if (error.message.includes("authentication")) {
                     errorMessage = "Erro de autenticação. Verifique sua chave API.";
+                } else if (error.message.includes("No auth credentials found")) {
+                    errorMessage = "Erro de autenticação: Credenciais não encontradas. Verificando conexão com a API...";
+                    // Tentar exibir detalhes adicionais
+                    setTimeout(() => {
+                        addMessage('system', "Por favor, tente novamente. Se o erro persistir, verifique se este servidor tem acesso à internet e às APIs da OpenRouter.");
+                    }, 1000);
                 }
                 
                 // Adicionar erro na UI como mensagem do sistema
