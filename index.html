@@ -722,22 +722,26 @@
             sendButton.disabled = true;
             
             try {
-                const response = await fetch(API_ENDPOINT, {
+                console.log("Enviando requisição para o modelo:", currentModel);
+                
+                const requestOptions = {
                     method: "POST",
                     headers: {
                         "Authorization": `Bearer ${OPENROUTER_API_KEY}`,
-                        "Content-Type": "application/json",
-                        "HTTP-Referer": "https://openrouter.ai/",
-                        "X-Title": "OpenRouter Chat"
+                        "Content-Type": "application/json"
                     },
                     body: JSON.stringify({
                         model: currentModel,
-                        messages: conversationHistory[currentModel],
-                        route: "fallback" // Adiciona opção de fallback para garantir a entrega
+                        messages: conversationHistory[currentModel]
                     })
-                });
+                };
                 
+                console.log("Opções da requisição:", JSON.stringify(requestOptions, null, 2));
+                const response = await fetch(API_ENDPOINT, requestOptions);
+                
+                console.log("Status da resposta:", response.status);
                 const data = await response.json();
+                console.log("Dados da resposta:", data);
                 
                 if (!response.ok) {
                     throw new Error(data.error?.message || data.error || "Erro desconhecido");
@@ -785,14 +789,11 @@
                     errorMessage = `Modelo "${getModelName(currentModel)}" não disponível neste provedor. Tente outro modelo.`;
                 } else if (error.message.includes("insufficient_quota")) {
                     errorMessage = "Saldo insuficiente para este modelo. Use um modelo gratuito ou recarregue sua conta.";
-                } else if (error.message.includes("authentication")) {
-                    errorMessage = "Erro de autenticação. Verifique sua chave API.";
-                } else if (error.message.includes("No auth credentials found")) {
-                    errorMessage = "Erro de autenticação: Credenciais não encontradas. Verificando conexão com a API...";
-                    // Tentar exibir detalhes adicionais
-                    setTimeout(() => {
-                        addMessage('system', "Por favor, tente novamente. Se o erro persistir, verifique se este servidor tem acesso à internet e às APIs da OpenRouter.");
-                    }, 1000);
+                } else if (error.message.includes("authentication") || error.message.includes("No auth credentials found") || error.message.includes("Unauthorized")) {
+                    errorMessage = "Erro de autenticação com a API OpenRouter. Verifique a chave API.";
+                    
+                    // Mostrar mensagem de solução
+                    addMessage('system', "Verifique se a chave API OpenRouter está correta. A chave atual parece estar expirada ou inválida. Você pode obter uma nova chave em https://openrouter.ai/keys");
                 }
                 
                 // Adicionar erro na UI como mensagem do sistema
