@@ -398,7 +398,8 @@
     <script>
         // Configurações
         const API_ENDPOINT = "https://openrouter.ai/api/v1/chat/completions";
-        const OPENROUTER_API_KEY = "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"; // Chave da API mantida no código
+        // Chave API atualizada em 9/maio/2025
+        const OPENROUTER_API_KEY = "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"; 
         const FREE_MODELS = [
             "openai/gpt-3.5-turbo",
             "meta-llama/llama-3-8b-instruct"
@@ -724,24 +725,29 @@
             try {
                 console.log("Enviando requisição para o modelo:", currentModel);
                 
+                const requestBody = {
+                    model: currentModel,
+                    messages: conversationHistory[currentModel],
+                    transforms: ["middle-out"],  // Otimização de desempenho
+                    route: "fallback"  // Tenta rotas alternativas se a primária falhar
+                };
+                
                 const requestOptions = {
                     method: "POST",
                     headers: {
                         "Authorization": `Bearer ${OPENROUTER_API_KEY}`,
-                        "Content-Type": "application/json"
+                        "Content-Type": "application/json",
+                        "HTTP-Referer": "https://openrouter.ai/playground",
+                        "X-Title": "OpenRouter Chat Interface"
                     },
-                    body: JSON.stringify({
-                        model: currentModel,
-                        messages: conversationHistory[currentModel]
-                    })
+                    body: JSON.stringify(requestBody)
                 };
                 
-                console.log("Opções da requisição:", JSON.stringify(requestOptions, null, 2));
+                console.log("Enviando requisição...");
                 const response = await fetch(API_ENDPOINT, requestOptions);
                 
                 console.log("Status da resposta:", response.status);
                 const data = await response.json();
-                console.log("Dados da resposta:", data);
                 
                 if (!response.ok) {
                     throw new Error(data.error?.message || data.error || "Erro desconhecido");
@@ -760,6 +766,8 @@
                     if (typeof botMessage === 'object' && botMessage.text) {
                         botMessage = botMessage.text;
                     }
+                    
+                    console.log("Resposta recebida com sucesso");
                 } catch (err) {
                     console.error('Erro ao extrair resposta:', err, data);
                     botMessage = "Erro ao processar resposta do modelo";
@@ -790,10 +798,296 @@
                 } else if (error.message.includes("insufficient_quota")) {
                     errorMessage = "Saldo insuficiente para este modelo. Use um modelo gratuito ou recarregue sua conta.";
                 } else if (error.message.includes("authentication") || error.message.includes("No auth credentials found") || error.message.includes("Unauthorized")) {
-                    errorMessage = "Erro de autenticação com a API OpenRouter. Verifique a chave API.";
+                    errorMessage = "Erro de autenticação com a API OpenRouter";
                     
-                    // Mostrar mensagem de solução
-                    addMessage('system', "Verifique se a chave API OpenRouter está correta. A chave atual parece estar expirada ou inválida. Você pode obter uma nova chave em https://openrouter.ai/keys");
+                    // Mostrar mensagem de solução com instruções claras
+                    addMessage('system', "A chave API atual parece estar expirada ou inválida. Para atualizar a chave API:" + 
+                    "\n\n1. Visite https://openrouter.ai/keys" +
+                    "\n2. Crie uma nova chave API" + 
+                    "\n3. Substitua a chave atual (OPENROUTER_API_KEY) no arquivo index.html");
+                }
+                
+                // Adicionar erro na UI como mensagem do sistema
+                addMessage('system', errorMessage);
+            } finally {
+                // Reativar interface
+                isWaitingForResponse = false;
+                sendButton.disabled = false;
+            }
+        }
+        
+        // Inicializar app
+        function initializeApp() {
+            // Aplicar tema salvo
+            setTheme(getTheme());
+            
+            // Inicializar chat
+            initializeChat();
+        }
+        
+        function initializeChat() {
+            // Inicializar histórico para o modelo atual
+            if (!conversationHistory[currentModel]) {
+                conversationHistory[currentModel] = [{
+                    role: "system", 
+                    content: "Você é um assistente útil, amigável e conciso."
+                }];
+            }
+            
+            // Carregar histórico salvo para o modelo atual
+            loadChatHistory(currentModel);
+        }
+        
+        // Carregar histórico salvo para um modelo
+        function loadChatHistory(model) {
+            chatContainer.innerHTML = '';
+            
+            if (!conversationHistory[model]) return;
+            
+            // Pular a primeira mensagem do sistema
+            for (let i = 1; i < conversationHistory[model].length; i++) {
+                const message = conversationHistory[model][i];
+                if (message.role !== 'system') {
+                    addMessage(
+                        message.role === 'user' ? 'user' : 'bot', 
+                        message.content, 
+                        message.role === 'user' ? `Modelo: ${getProviderName(model)} ${getModelName(model)}` : null
+                    );
+                }
+            }
+        }
+        
+        // Limpar o chat e histórico para o modelo atual
+        function clearChat() {
+            chatContainer.innerHTML = '';
+            conversationHistory[currentModel] = [{
+                role: "system", 
+                content: "Você é um assistente útil, amigável e conciso."
+            }];
+            saveChatHistory(conversationHistory);
+        }
+        
+        // Adicionar mensagem à UI
+        function addMessage(role, content, meta = null) {
+            const wasScrolledToBottom = chatContainer.scrollHeight - chatContainer.clientHeight <= chatContainer.scrollTop + 20;
+            
+            // Remover indicador de digitação
+            const typingIndicator = chatContainer.querySelector('.typing-indicator-message');
+            if (typingIndicator) typingIndicator.remove();
+            
+            const messageDiv = document.createElement('div');
+            messageDiv.className = `message ${role}-message`;
+            
+            let headerHTML = '';
+            if (meta) {
+                headerHTML = `<div class="message-header">${meta}</div>`;
+            }
+            
+            // Se for mensagem do bot, renderizar markdown
+            let contentHTML = '';
+            if (role === 'bot') {
+                // Adicionar badge do provedor
+                const modelBadge = `
+                    <div class="message-header">
+                        <span class="model-badge ${getProviderClass(currentModel)}">
+                            ${getProviderName(currentModel)} ${getModelName(currentModel)}
+                        </span>
+                    </div>
+                `;
+                headerHTML = modelBadge;
+                
+                try {
+                    // Processar markdown com marked
+                    contentHTML = marked.parse(content);
+                    
+                    // Adicionar botões de cópia para blocos de código
+                    const tempDiv = document.createElement('div');
+                    tempDiv.innerHTML = contentHTML;
+                    
+                    tempDiv.querySelectorAll('pre').forEach(pre => {
+                        const copyBtn = document.createElement('button');
+                        copyBtn.className = 'copy-btn';
+                        copyBtn.textContent = 'Copiar';
+                        copyBtn.addEventListener('click', () => {
+                            const codeElement = pre.querySelector('code');
+                            if (codeElement) {
+                                navigator.clipboard.writeText(codeElement.innerText)
+                                    .then(() => {
+                                        copyBtn.textContent = 'Copiado!';
+                                        setTimeout(() => copyBtn.textContent = 'Copiar', 2000);
+                                    })
+                                    .catch(err => {
+                                        console.error('Erro ao copiar:', err);
+                                        copyBtn.textContent = 'Erro';
+                                        setTimeout(() => copyBtn.textContent = 'Copiar', 2000);
+                                    });
+                            }
+                        });
+                        pre.prepend(copyBtn);
+                    });
+                    
+                    contentHTML = tempDiv.innerHTML;
+                } catch (e) {
+                    console.error('Erro ao renderizar markdown:', e);
+                    contentHTML = `<p>${content}</p>`;
+                }
+            } else if (role === 'system') {
+                messageDiv.className = 'message system-message';
+                contentHTML = `<p>${content}</p>`;
+            } else {
+                contentHTML = `<p>${content}</p>`;
+            }
+            
+            messageDiv.innerHTML = headerHTML + contentHTML;
+            chatContainer.appendChild(messageDiv);
+            
+            // Auto-scroll para baixo se já estava no final
+            if (wasScrolledToBottom) {
+                chatContainer.scrollTop = chatContainer.scrollHeight;
+            }
+        }
+        
+        // Mostrar indicador de digitação
+        function showTypingIndicator() {
+            const indicatorDiv = document.createElement('div');
+            indicatorDiv.className = 'message bot-message typing-indicator-message';
+            
+            const typingContainer = document.createElement('div');
+            typingContainer.className = 'typing-indicator';
+            typingContainer.innerHTML = `
+                <span class="typing-dot"></span>
+                <span class="typing-dot"></span>
+                <span class="typing-dot"></span>
+            `;
+            
+            indicatorDiv.appendChild(typingContainer);
+            chatContainer.appendChild(indicatorDiv);
+            chatContainer.scrollTop = chatContainer.scrollHeight;
+        }
+        
+        // Função para enviar mensagem
+        async function sendMessage() {
+            const userMessage = messageInput.value.trim();
+            if (!userMessage || isWaitingForResponse) return;
+            
+            const selectedModel = modelSelector.value;
+            
+            // Limpar input e ajustar altura
+            messageInput.value = '';
+            messageInput.style.height = 'auto';
+            
+            // Atualizar variável de modelo atual
+            if (currentModel !== selectedModel) {
+                currentModel = selectedModel;
+            }
+            
+            // Garantir que há histórico para este modelo
+            if (!conversationHistory[currentModel]) {
+                conversationHistory[currentModel] = [{
+                    role: "system",
+                    content: "Você é um assistente útil, amigável e conciso."
+                }];
+            }
+            
+            // Adicionar mensagem à UI
+            addMessage('user', userMessage, `Modelo: ${getProviderName(currentModel)} ${getModelName(currentModel)}`);
+            
+            // Adicionar mensagem ao histórico
+            conversationHistory[currentModel].push({
+                role: "user",
+                content: userMessage
+            });
+            
+            // Mostrar indicador de digitação
+            showTypingIndicator();
+            
+            // Desativar interface durante a requisição
+            isWaitingForResponse = true;
+            sendButton.disabled = true;
+            
+            try {
+                console.log("Enviando requisição para o modelo:", currentModel);
+                
+                const requestBody = {
+                    model: currentModel,
+                    messages: conversationHistory[currentModel],
+                    transforms: ["middle-out"],  // Otimização de desempenho
+                    route: "fallback"  // Tenta rotas alternativas se a primária falhar
+                };
+                
+                const requestOptions = {
+                    method: "POST",
+                    headers: {
+                        "Authorization": `Bearer ${OPENROUTER_API_KEY}`,
+                        "Content-Type": "application/json",
+                        "HTTP-Referer": "https://openrouter.ai/playground",
+                        "X-Title": "OpenRouter Chat Interface"
+                    },
+                    body: JSON.stringify(requestBody)
+                };
+                
+                console.log("Enviando requisição...");
+                const response = await fetch(API_ENDPOINT, requestOptions);
+                
+                console.log("Status da resposta:", response.status);
+                const data = await response.json();
+                
+                if (!response.ok) {
+                    throw new Error(data.error?.message || data.error || "Erro desconhecido");
+                }
+                
+                // Extrair resposta
+                let botMessage = '';
+                try {
+                    // Tentar extrair a resposta (diferentes modelos podem ter estruturas diferentes)
+                    botMessage = data.choices?.[0]?.message?.content || 
+                               data.choices?.[0]?.content || 
+                               data.content?.[0]?.text || 
+                               "Resposta vazia do modelo";
+                               
+                    // Para novos modelos Claude 3
+                    if (typeof botMessage === 'object' && botMessage.text) {
+                        botMessage = botMessage.text;
+                    }
+                    
+                    console.log("Resposta recebida com sucesso");
+                } catch (err) {
+                    console.error('Erro ao extrair resposta:', err, data);
+                    botMessage = "Erro ao processar resposta do modelo";
+                }
+                
+                // Adicionar resposta do bot à UI
+                addMessage('bot', botMessage);
+                
+                // Adicionar resposta ao histórico
+                conversationHistory[currentModel].push({
+                    role: "assistant",
+                    content: botMessage
+                });
+                
+                // Salvar histórico
+                saveChatHistory(conversationHistory);
+            } catch (error) {
+                console.error("Erro completo:", error);
+                
+                // Formatar erro específico para cada provedor
+                let errorMessage = `Erro: ${error.message}`;
+                
+                // Erros comuns com mensagens mais amigáveis
+                if (error.message.includes("Rate limit")) {
+                    errorMessage = "Limite de taxa excedido. Tente novamente em alguns segundos.";
+                } else if (error.message.includes("not a valid model ID")) {
+                    errorMessage = `Modelo "${getModelName(currentModel)}" não disponível neste provedor. Tente outro modelo.`;
+                } else if (error.message.includes("insufficient_quota")) {
+                    errorMessage = "Saldo insuficiente para este modelo. Use um modelo gratuito ou recarregue sua conta.";
+                } else if (error.message.includes("authentication") || error.message.includes("No auth credentials found") || error.message.includes("Unauthorized")) {
+                    errorMessage = "Erro de autenticação com a API OpenRouter";
+                    
+                    // Mostrar mensagem de solução com instruções claras
+                    addMessage('system', "A chave API atual parece estar expirada ou inválida. Para atualizar a chave API:" + 
+                    "\n\n1. Visite https://openrouter.ai/keys" +
+                    "\n2. Crie uma nova chave API" + 
+                    "\n3. Substitua a chave atual (OPENROUTER_API_KEY) no arquivo index.html");
                 }
                 
                 // Adicionar erro na UI como mensagem do sistema

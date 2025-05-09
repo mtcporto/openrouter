@@ -99,4 +99,4 @@ Este projeto está licenciado sob a Licença MIT - veja o arquivo LICENSE para d
 
 ---
 
-Desenvolvido por [Seu Nome] © 2025
+Desenvolvido por Marco Porto © 2025
